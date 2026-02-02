@@ -62,7 +62,7 @@ In the Dagster UI:
 
 ### 5. Query with DataFusion
 
-See the companion [datafusion_service](https://github.com/horizonanalytic/datafusion_service) for querying these Parquet files at blazing speed.
+See the companion [dagster-datafusion](https://github.com/horizonanalytic/dagster-datafusion) service for querying these Parquet files at blazing speed.
 
 ## Architecture
 
@@ -201,7 +201,7 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for:
 - Deploying Dagster to ECS/Kubernetes
 - Using real S3 instead of LocalStack
 - Multi-environment configuration (UAT, Prod)
-- Integration with [datafusion_service](https://github.com/horizonanalytic/datafusion_service)
+- Integration with [dagster-datafusion](https://github.com/horizonanalytic/dagster-datafusion) service
 
 ## Performance
 
@@ -219,7 +219,7 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for:
 - [DataFusion Documentation](https://arrow.apache.org/datafusion/)
 - [Apache Parquet Format](https://parquet.apache.org/docs/)
 - [uv - Fast Python Package Manager](https://github.com/astral-sh/uv)
-- [DataFusion Service](https://github.com/horizonanalytic/datafusion_service) - Query service using these Parquet files
+- [DataFusion Query Service](https://github.com/horizonanalytic/dagster-datafusion) - Query service using these Parquet files
 
 ## License
 

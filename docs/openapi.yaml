@@ -1,0 +1,944 @@
+openapi: 3.0.3
+info:
+  title: DataFusion Query Service API
+  description: |
+    High-performance query service for Parquet data using Apache DataFusion.
+
+    ## Features
+    - Execute SQL queries against Parquet files in S3
+    - Multi-environment support (UAT, Prod)
+    - Automatic table discovery from Dagster
+    - Query result caching with configurable TTL
+    - Schema introspection and metadata
+    - Prometheus metrics integration
+
+    ## Performance
+    - Simple filter (COUNT by state): 620ms
+    - Complex filter (3 columns): 1100ms
+    - Top 25 with sort: 3000ms
+    - Cache hit: <1ms
+
+    ## Authentication
+    Currently no authentication is required. Future versions will support:
+    - API key authentication
+    - AWS IAM roles
+    - JWT tokens
+    - OAuth 2.0 (Clerk, Auth0)
+  version: 0.1.0
+  contact:
+    name: API Support
+    email: support@example.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:8080
+    description: Local development (Docker Compose + LocalStack)
+  - url: http://datafusion.uat.local:8080
+    description: UAT environment (AWS ECS)
+  - url: http://datafusion.prod.local:8080
+    description: Production environment (AWS ECS)
+
+tags:
+  - name: Query
+    description: SQL query execution
+  - name: Catalog
+    description: Table discovery and schema introspection
+  - name: Environment
+    description: Environment management
+  - name: Schema
+    description: Schema-level operations
+  - name: Cache
+    description: Query cache management
+  - name: Health
+    description: Health checks and monitoring
+
+paths:
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Service health check
+      description: Returns service health status and version information
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: healthy
+                version: 0.1.0
+                uptime_seconds: 3600
+                datafusion_version: "43.0.0"
+
+  /metrics:
+    get:
+      tags:
+        - Health
+      summary: Prometheus metrics
+      description: Returns Prometheus-format metrics for monitoring
+      operationId: getMetrics
+      responses:
+        '200':
+          description: Metrics in Prometheus text format
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: |
+                # HELP dagster_sync_total Total number of Dagster syncs
+                # TYPE dagster_sync_total counter
+                dagster_sync_total{environment="uat",status="success"} 42
+                # HELP registered_tables_total Total number of registered tables
+                # TYPE registered_tables_total gauge
+                registered_tables_total{environment="uat"} 15
+
+  /api/v1/query:
+    post:
+      tags:
+        - Query
+      summary: Execute SQL query
+      description: |
+        Execute a SQL query against registered Parquet tables.
+
+        ## Features
+        - Automatic table name qualification with environment prefix
+        - Query result caching (configurable TTL)
+        - Configurable timeout (1-300 seconds)
+        - Bypass cache option for fresh results
+
+        ## Performance Tips
+        - Use specific column names instead of SELECT *
+        - Add WHERE clauses to leverage partition pruning
+        - Use LIMIT for large result sets
+        - Avoid ORDER BY without LIMIT on large tables
+      operationId: executeQuery
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QueryRequest'
+            examples:
+              simpleQuery:
+                summary: Simple SELECT query
+                value:
+                  sql: "SELECT grouping_name, state, city FROM organizations LIMIT 10"
+                  environment: uat
+              filteredQuery:
+                summary: Filtered query (partition pruning)
+                value:
+                  sql: "SELECT * FROM organizations WHERE state = 'CA' LIMIT 25"
+                  environment: uat
+              aggregationQuery:
+                summary: Aggregation query
+                value:
+                  sql: "SELECT state, COUNT(*) as count FROM organizations GROUP BY state"
+                  environment: uat
+              customTimeout:
+                summary: Query with custom timeout
+                value:
+                  sql: "SELECT COUNT(*) FROM organizations"
+                  environment: uat
+                  timeout_secs: 5
+              bypassCache:
+                summary: Query bypassing cache
+                value:
+                  sql: "SELECT COUNT(*) FROM organizations"
+                  environment: uat
+                  bypass_cache: true
+      responses:
+        '200':
+          description: Query executed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueryResponse'
+              example:
+                columns: ["id", "name", "state"]
+                data:
+                  - id: 1
+                    name: "Acme Corp"
+                    state: "CA"
+                  - id: 2
+                    name: "TechCorp"
+                    state: "NY"
+                rows_returned: 25
+                execution_time_ms: 1250
+                cache_hit: false
+                environment: uat
+        '400':
+          description: Invalid request or SQL syntax error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalidSql:
+                  summary: SQL parsing error
+                  value:
+                    error: InvalidSql
+                    message: "Parser error: Expected identifier, found: FROM"
+                queryError:
+                  summary: Query validation error
+                  value:
+                    error: QueryError
+                    message: "SQL query cannot be empty"
+        '404':
+          description: Table not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: TableNotFound
+                message: "Table 'unknown_table' not found in environment 'uat'"
+        '408':
+          description: Query timeout
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: TimeoutError
+                message: "Query exceeded timeout of 30 seconds"
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: InternalError
+                message: "Unexpected error during query execution"
+        '502':
+          description: External service error (S3, Database)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: S3Error
+                message: "Failed to read from S3: Access denied"
+
+  /api/v1/environments:
+    get:
+      tags:
+        - Environment
+      summary: List all environments
+      description: Returns list of all registered Dagster environments
+      operationId: listEnvironments
+      responses:
+        '200':
+          description: List of environments
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnvironmentsResponse'
+              example:
+                environments:
+                  - uat
+                  - prod
+                total: 2
+
+  /api/v1/environments/{environment}/tables:
+    get:
+      tags:
+        - Environment
+      summary: List tables in environment
+      description: Returns all tables registered in a specific environment
+      operationId: listEnvironmentTables
+      parameters:
+        - name: environment
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Environment name (e.g., 'uat', 'prod')
+          example: uat
+      responses:
+        '200':
+          description: List of tables in environment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TablesResponse'
+
+  /api/v1/catalog/tables:
+    get:
+      tags:
+        - Catalog
+      summary: List all tables
+      description: |
+        List all registered tables across all environments.
+
+        ## Filtering
+        - Filter by environment: `?environment=uat`
+        - Filter by schema: `?schema=uat_gold_delivery`
+        - Group by schema: `?group_by_schema=true`
+      operationId: listTables
+      parameters:
+        - name: environment
+          in: query
+          schema:
+            type: string
+          description: Filter by environment name
+          example: uat
+        - name: schema
+          in: query
+          schema:
+            type: string
+          description: Filter by schema name
+          example: uat_gold_delivery
+        - name: group_by_schema
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Group results by schema
+      responses:
+        '200':
+          description: List of tables
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TablesResponse'
+              example:
+                tables:
+                  - name: uat.organizations
+                    base_name: organizations
+                    s3_paths:
+                      - s3://bucket/prefix/organizations.parquet
+                    row_count: 1000000
+                    column_count: 50
+                    last_updated: "2026-01-07T10:30:00Z"
+                    environment: uat
+                    source_asset_key: "Silver.Organizations.organizations"
+                    registered_at: "2026-01-07T09:00:00Z"
+                total: 42
+                environment: uat
+
+  /api/v1/catalog/tables/{table_name}:
+    get:
+      tags:
+        - Catalog
+      summary: Get table details
+      description: Returns detailed metadata for a specific table
+      operationId: getTable
+      parameters:
+        - name: table_name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Fully qualified table name (e.g., 'uat.organizations')
+          example: uat.organizations
+      responses:
+        '200':
+          description: Table details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TableDetails'
+        '404':
+          description: Table not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/catalog/tables/{table_name}/schema:
+    get:
+      tags:
+        - Catalog
+      summary: Get table schema
+      description: Returns Arrow schema for a specific table
+      operationId: getTableSchema
+      parameters:
+        - name: table_name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Fully qualified table name
+          example: uat.organizations
+      responses:
+        '200':
+          description: Table schema
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TableSchemaResponse'
+              example:
+                table_name: uat.organizations
+                fields:
+                  - name: id
+                    data_type: Int64
+                    nullable: false
+                  - name: name
+                    data_type: Utf8
+                    nullable: true
+                  - name: state
+                    data_type: Utf8
+                    nullable: true
+                field_count: 3
+        '404':
+          description: Table not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/catalog/refresh:
+    post:
+      tags:
+        - Catalog
+      summary: Refresh catalog from Dagster
+      description: |
+        Trigger an immediate metadata sync from Dagster to discover new tables
+        and update existing table metadata.
+
+        This is normally done automatically on a schedule (every 1-5 minutes),
+        but this endpoint allows manual triggering.
+      operationId: refreshCatalog
+      responses:
+        '200':
+          description: Catalog refresh completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefreshResponse'
+              example:
+                success: true
+                environments_synced:
+                  - uat
+                tables_discovered: 25
+                tables_registered: 20
+                tables_updated: 5
+                sync_duration_ms: 1500
+                error: null
+
+  /api/v1/schemas:
+    get:
+      tags:
+        - Schema
+      summary: List all schemas
+      description: Returns list of all schemas with metadata
+      operationId: listSchemas
+      responses:
+        '200':
+          description: List of schemas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SchemasResponse'
+              example:
+                schemas:
+                  - name: uat_gold_delivery
+                    table_count: 5
+                    environment: uat
+                    layer: gold
+                    group: delivery
+                total: 1
+
+  /api/v1/schemas/{schema_name}/tables:
+    get:
+      tags:
+        - Schema
+      summary: List tables in schema
+      description: Returns all tables in a specific schema
+      operationId: listSchematables
+      parameters:
+        - name: schema_name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Schema name
+          example: uat_gold_delivery
+      responses:
+        '200':
+          description: List of tables in schema
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TablesResponse'
+
+  /api/v1/cache/clear:
+    post:
+      tags:
+        - Cache
+      summary: Clear query cache
+      description: |
+        Clear cached query results.
+
+        Options:
+        - Clear entire cache: `{"all": true}`
+        - Clear specific table: `{"table": "uat.organizations"}`
+      operationId: clearCache
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClearCacheRequest'
+            examples:
+              clearAll:
+                summary: Clear entire cache
+                value:
+                  all: true
+              clearTable:
+                summary: Clear cache for specific table
+                value:
+                  table: uat.organizations
+      responses:
+        '200':
+          description: Cache cleared successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClearCacheResponse'
+              example:
+                success: true
+                entries_cleared: 42
+                message: "Cleared 42 cache entries"
+
+  /api/v1/cache/stats:
+    get:
+      tags:
+        - Cache
+      summary: Get cache statistics
+      description: Returns cache performance metrics and configuration
+      operationId: getCacheStats
+      responses:
+        '200':
+          description: Cache statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CacheStatsResponse'
+              example:
+                hits: 1000
+                misses: 200
+                hit_rate: 0.833
+                total_requests: 1200
+                entries: 50
+                size_bytes: 104857600
+                evictions: 10
+                config:
+                  max_entries: 1000
+                  max_size_bytes: 1000000000
+                  ttl_seconds: 300
+
+components:
+  schemas:
+    QueryRequest:
+      type: object
+      required:
+        - sql
+        - environment
+      properties:
+        sql:
+          type: string
+          description: SQL query to execute (max 10KB)
+          maxLength: 10240
+          example: "SELECT * FROM organizations LIMIT 10"
+        environment:
+          type: string
+          description: Dagster environment name
+          example: uat
+        format:
+          type: string
+          enum: [json]
+          default: json
+          description: Response format (only JSON supported currently)
+        timeout_secs:
+          type: integer
+          minimum: 1
+          maximum: 300
+          default: 30
+          description: Query timeout in seconds
+        bypass_cache:
+          type: boolean
+          default: false
+          description: Skip cache and force query execution
+
+    QueryResponse:
+      type: object
+      required:
+        - columns
+        - data
+        - rows_returned
+        - execution_time_ms
+        - cache_hit
+        - environment
+      properties:
+        columns:
+          type: array
+          items:
+            type: string
+          description: Column names from SELECT
+          example: ["id", "name", "state"]
+        data:
+          type: array
+          items:
+            type: object
+          description: Array of result rows (JSON objects)
+        rows_returned:
+          type: integer
+          description: Total number of rows returned
+          example: 25
+        execution_time_ms:
+          type: integer
+          description: Query execution time in milliseconds
+          example: 1250
+        cache_hit:
+          type: boolean
+          description: Whether result came from cache
+          example: false
+        environment:
+          type: string
+          description: Environment that was queried
+          example: uat
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: Error type identifier
+          enum:
+            - QueryError
+            - InvalidSql
+            - TableNotFound
+            - TimeoutError
+            - S3Error
+            - DatabaseError
+            - InternalError
+            - DataFusionError
+            - ConfigError
+            - ObjectStoreError
+          example: InvalidSql
+        message:
+          type: string
+          description: Human-readable error message
+          example: "Parser error: Expected identifier, found: FROM"
+
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - version
+      properties:
+        status:
+          type: string
+          enum: [healthy, unhealthy]
+          description: Service health status
+          example: healthy
+        version:
+          type: string
+          description: Service version
+          example: 0.1.0
+        uptime_seconds:
+          type: integer
+          description: Service uptime in seconds
+          example: 3600
+        datafusion_version:
+          type: string
+          description: DataFusion engine version
+          example: "43.0.0"
+
+    TablesResponse:
+      type: object
+      required:
+        - tables
+        - total
+      properties:
+        tables:
+          type: array
+          items:
+            $ref: '#/components/schemas/TableDetails'
+        total:
+          type: integer
+          description: Total number of tables
+          example: 42
+        environment:
+          type: string
+          description: Environment filter (if applied)
+          example: uat
+
+    TableDetails:
+      type: object
+      required:
+        - name
+        - base_name
+        - s3_paths
+        - environment
+      properties:
+        name:
+          type: string
+          description: Fully qualified table name
+          example: uat.organizations
+        base_name:
+          type: string
+          description: Base table name without environment prefix
+          example: organizations
+        s3_paths:
+          type: array
+          items:
+            type: string
+          description: S3 paths to Parquet files
+          example: ["s3://bucket/prefix/organizations.parquet"]
+        row_count:
+          type: integer
+          description: Approximate row count
+          example: 1000000
+        column_count:
+          type: integer
+          description: Number of columns
+          example: 50
+        last_updated:
+          type: string
+          format: date-time
+          description: Last update timestamp
+          example: "2026-01-07T10:30:00Z"
+        environment:
+          type: string
+          description: Environment this table belongs to
+          example: uat
+        source_asset_key:
+          type: string
+          description: Dagster asset key
+          example: "Silver.Organizations.organizations"
+        registered_at:
+          type: string
+          format: date-time
+          description: When table was registered
+          example: "2026-01-07T09:00:00Z"
+
+    TableSchemaResponse:
+      type: object
+      required:
+        - table_name
+        - fields
+        - field_count
+      properties:
+        table_name:
+          type: string
+          description: Fully qualified table name
+          example: uat.organizations
+        fields:
+          type: array
+          items:
+            $ref: '#/components/schemas/SchemaField'
+        field_count:
+          type: integer
+          description: Total number of fields
+          example: 50
+
+    SchemaField:
+      type: object
+      required:
+        - name
+        - data_type
+        - nullable
+      properties:
+        name:
+          type: string
+          description: Column name
+          example: id
+        data_type:
+          type: string
+          description: Arrow data type
+          example: Int64
+        nullable:
+          type: boolean
+          description: Whether column can contain NULL values
+          example: false
+
+    EnvironmentsResponse:
+      type: object
+      required:
+        - environments
+        - total
+      properties:
+        environments:
+          type: array
+          items:
+            type: string
+          example: ["uat", "prod"]
+        total:
+          type: integer
+          example: 2
+
+    SchemasResponse:
+      type: object
+      required:
+        - schemas
+        - total
+      properties:
+        schemas:
+          type: array
+          items:
+            $ref: '#/components/schemas/SchemaInfo'
+        total:
+          type: integer
+
+    SchemaInfo:
+      type: object
+      required:
+        - name
+        - table_count
+      properties:
+        name:
+          type: string
+          example: uat_gold_delivery
+        table_count:
+          type: integer
+          example: 5
+        environment:
+          type: string
+          example: uat
+        layer:
+          type: string
+          example: gold
+        group:
+          type: string
+          example: delivery
+
+    RefreshResponse:
+      type: object
+      required:
+        - success
+      properties:
+        success:
+          type: boolean
+          example: true
+        environments_synced:
+          type: array
+          items:
+            type: string
+          example: ["uat"]
+        tables_discovered:
+          type: integer
+          example: 25
+        tables_registered:
+          type: integer
+          example: 20
+        tables_updated:
+          type: integer
+          example: 5
+        sync_duration_ms:
+          type: integer
+          example: 1500
+        error:
+          type: string
+          nullable: true
+          example: null
+
+    ClearCacheRequest:
+      type: object
+      properties:
+        all:
+          type: boolean
+          default: false
+          description: Clear entire cache
+        table:
+          type: string
+          description: Clear cache for specific table
+          example: uat.organizations
+
+    ClearCacheResponse:
+      type: object
+      required:
+        - success
+        - entries_cleared
+        - message
+      properties:
+        success:
+          type: boolean
+          example: true
+        entries_cleared:
+          type: integer
+          example: 42
+        message:
+          type: string
+          example: "Cleared 42 cache entries"
+
+    CacheStatsResponse:
+      type: object
+      required:
+        - hits
+        - misses
+        - hit_rate
+        - total_requests
+        - entries
+        - size_bytes
+        - evictions
+        - config
+      properties:
+        hits:
+          type: integer
+          description: Number of cache hits
+          example: 1000
+        misses:
+          type: integer
+          description: Number of cache misses
+          example: 200
+        hit_rate:
+          type: number
+          format: double
+          description: Cache hit rate (0.0 - 1.0)
+          example: 0.833
+        total_requests:
+          type: integer
+          description: Total cache requests
+          example: 1200
+        entries:
+          type: integer
+          description: Current number of cached entries
+          example: 50
+        size_bytes:
+          type: integer
+          format: int64
+          description: Total cache size in bytes
+          example: 104857600
+        evictions:
+          type: integer
+          description: Number of cache evictions
+          example: 10
+        config:
+          type: object
+          description: Cache configuration
+          properties:
+            max_entries:
+              type: integer
+              example: 1000
+            max_size_bytes:
+              type: integer
+              format: int64
+              example: 1000000000
+            ttl_seconds:
+              type: integer
+              example: 300
+
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API key authentication (planned for future release)
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT bearer token (planned for future release)
+
+security: []  # No authentication required currently

@@ -399,10 +399,10 @@ DAGSTER_POSTGRES_DB=dagster
 
 ## Integration with DataFusion Service
 
-Once Dagster is deployed, configure the DataFusion service to discover assets:
+Once Dagster is deployed, configure the DataFusion service ([dagster-datafusion](https://github.com/horizonanalytic/dagster-datafusion)) to discover assets:
 
 ```bash
-# In datafusion_service .env
+# In dagster-datafusion .env
 DAGSTER_PROD_DB_URL=postgresql://user:password@prod-db.rds.amazonaws.com:5432/dagster
 DAGSTER_PROD_ENABLED=true
 DAGSTER_SYNC_INTERVAL_SECS=300

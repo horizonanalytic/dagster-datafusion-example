@@ -55,7 +55,7 @@
              ▼
 ┌─────────────────────────────────────────────────────────────┐
 │               DataFusion Query Service                       │
-│                (Separate repository)                         │
+│      (github.com/horizonanalytic/dagster-datafusion)        │
 │                                                              │
 │  • Discovers assets via Dagster metadata DB                 │
 │  • Registers Parquet tables in DataFusion                   │
