@@ -25,7 +25,12 @@ MANIFEST
 venv/
 ENV/
 env/
+.venv/
 .venv
+
+# uv
+uv.lock
+.python-version.bak
 
 # IDEs
 .vscode/

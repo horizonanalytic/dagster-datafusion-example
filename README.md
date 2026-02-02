@@ -2,6 +2,8 @@
 
 > **Complete working example** demonstrating how to use [Dagster](https://dagster.io) to generate Parquet files and query them with [DataFusion](https://arrow.apache.org/datafusion/) for blazing-fast analytics.
 
+**Repository**: [github.com/horizonanalytic/dagster-datafusion-example](https://github.com/horizonanalytic/dagster-datafusion-example)
+
 ## What This Demonstrates
 
 - **Parquet Generation**: Dagster assets that generate partitioned Parquet files
@@ -15,14 +17,15 @@
 ### Prerequisites
 
 - Docker and Docker Compose
-- Python 3.9+ (for local development)
+- Python 3.11+ (for local development)
+- [uv](https://github.com/astral-sh/uv) package manager (for local development)
 - AWS credentials (for production S3, optional for local)
 
 ### 1. Clone and Configure
 
 ```bash
-git clone https://github.com/yourusername/datafusion-dagster-example.git
-cd datafusion-dagster-example
+git clone git@github.com:horizonanalytic/dagster-datafusion-example.git
+cd dagster-datafusion-example
 
 # Copy environment template
 cp .env.example .env
@@ -59,7 +62,7 @@ In the Dagster UI:
 
 ### 5. Query with DataFusion
 
-See the companion [datafusion_service](https://github.com/yourusername/datafusion_service) for querying these Parquet files at blazing speed.
+See the companion [datafusion_service](https://github.com/horizonanalytic/datafusion_service) for querying these Parquet files at blazing speed.
 
 ## Architecture
 
@@ -167,12 +170,16 @@ AWS_SECRET_ACCESS_KEY=test
 
 ## Development
 
-### Install Python Dependencies
+### Install Python Dependencies with uv
 
 ```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
+# Install uv if not already installed
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Create virtual environment and install dependencies
+uv venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+uv pip install -e ".[dev]"
 ```
 
 ### Run Dagster Locally (without Docker)
@@ -185,7 +192,7 @@ dagster dev -f dagster_pipeline/repository.py
 ### Run Tests
 
 ```bash
-pytest tests/ -v
+uv run pytest tests/ -v
 ```
 
 ## Production Deployment
@@ -194,7 +201,7 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for:
 - Deploying Dagster to ECS/Kubernetes
 - Using real S3 instead of LocalStack
 - Multi-environment configuration (UAT, Prod)
-- Integration with [datafusion_service](https://github.com/yourusername/datafusion_service)
+- Integration with [datafusion_service](https://github.com/horizonanalytic/datafusion_service)
 
 ## Performance
 
@@ -211,7 +218,8 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for:
 - [Dagster Documentation](https://docs.dagster.io)
 - [DataFusion Documentation](https://arrow.apache.org/datafusion/)
 - [Apache Parquet Format](https://parquet.apache.org/docs/)
-- [DataFusion Service](https://github.com/yourusername/datafusion_service) - Query service using these Parquet files
+- [uv - Fast Python Package Manager](https://github.com/astral-sh/uv)
+- [DataFusion Service](https://github.com/horizonanalytic/datafusion_service) - Query service using these Parquet files
 
 ## License
 
