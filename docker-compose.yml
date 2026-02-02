@@ -1,0 +1,131 @@
+version: '3.8'
+
+services:
+  # PostgreSQL - Dagster metadata database
+  postgres:
+    image: postgres:15-alpine
+    container_name: dagster_postgres
+    environment:
+      POSTGRES_USER: dagster
+      POSTGRES_PASSWORD: dagster
+      POSTGRES_DB: dagster
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dagster"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dagster_network
+
+  # LocalStack - Local S3 emulation
+  localstack:
+    image: localstack/localstack:latest
+    container_name: localstack
+    ports:
+      - "4566:4566"  # LocalStack gateway
+      - "4510-4559:4510-4559"  # External service ports
+    environment:
+      - SERVICES=s3
+      - DEBUG=1
+      - DATA_DIR=/tmp/localstack/data
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - AWS_DEFAULT_REGION=us-east-2
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+    volumes:
+      - "./localstack_data:/tmp/localstack"
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    healthcheck:
+      test: ["CMD", "awslocal", "s3", "ls"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dagster_network
+
+  # Dagster Webserver
+  dagster_webserver:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dagster_webserver
+    image: dagster_example:latest
+    entrypoint:
+      - dagster-webserver
+      - -h
+      - "0.0.0.0"
+      - -p
+      - "3000"
+      - -w
+      - workspace.yaml
+    environment:
+      DAGSTER_POSTGRES_USER: dagster
+      DAGSTER_POSTGRES_PASSWORD: dagster
+      DAGSTER_POSTGRES_DB: dagster
+      DAGSTER_POSTGRES_HOST: postgres
+      DAGSTER_POSTGRES_PORT: 5432
+      ENVIRONMENT: local
+      S3_BUCKET: dagster-parquet-data
+      S3_PREFIX: datafusion_test
+      AWS_ENDPOINT_URL: http://localstack:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_REGION: us-east-2
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./dagster_pipeline:/opt/dagster/app/dagster_pipeline
+      - ./workspace.yaml:/opt/dagster/app/workspace.yaml
+    depends_on:
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    networks:
+      - dagster_network
+
+  # Dagster Daemon (schedules, sensors, run queue)
+  dagster_daemon:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dagster_daemon
+    image: dagster_example:latest
+    entrypoint:
+      - dagster-daemon
+      - run
+    environment:
+      DAGSTER_POSTGRES_USER: dagster
+      DAGSTER_POSTGRES_PASSWORD: dagster
+      DAGSTER_POSTGRES_DB: dagster
+      DAGSTER_POSTGRES_HOST: postgres
+      DAGSTER_POSTGRES_PORT: 5432
+      ENVIRONMENT: local
+      S3_BUCKET: dagster-parquet-data
+      S3_PREFIX: datafusion_test
+      AWS_ENDPOINT_URL: http://localstack:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_REGION: us-east-2
+    volumes:
+      - ./dagster_pipeline:/opt/dagster/app/dagster_pipeline
+      - ./workspace.yaml:/opt/dagster/app/workspace.yaml
+    depends_on:
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    networks:
+      - dagster_network
+
+volumes:
+  postgres_data:
+  localstack_data:
+
+networks:
+  dagster_network:
+    driver: bridge
