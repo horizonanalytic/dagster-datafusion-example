@@ -389,7 +389,7 @@ def main():
         print(f"  Service Status: {health.get('status', 'unknown')}")
         print(f"  Version: {health.get('version', 'unknown')}")
     except Exception as e:
-        print(f"\n❌ ERROR: Cannot connect to DataFusion service at {base_url}")
+        print(f"\nERROR: Cannot connect to DataFusion service at {base_url}")
         print(f"   Make sure the service is running: docker-compose up -d")
         print(f"   Error: {e}")
         sys.exit(1)
@@ -412,11 +412,11 @@ def main():
         print("\n\nInterrupted by user")
         sys.exit(0)
     except Exception as e:
-        print(f"\n❌ Error running examples: {e}")
+        print(f"\nError running examples: {e}")
         sys.exit(1)
 
     print("\n" + "="*80)
-    print("✅ All examples completed!")
+    print("All examples completed!")
     print("="*80)
 
 
