@@ -477,7 +477,7 @@ def print_results(results: List[BenchmarkResult]):
 
     for result in results:
         if result.error:
-            print(f"\n❌ {result.name:<{max_name_len}} - ERROR: {result.error}")
+            print(f"\n{result.name:<{max_name_len}} - ERROR: {result.error}")
         else:
             print(f"\n✓ {result.name:<{max_name_len}}")
             print(f"  Execution Time: {result.execution_time_ms:>6}ms")
@@ -564,7 +564,7 @@ def main():
         health = response.json()
         print(f"  Service Status: {health.get('status', 'unknown')}")
     except Exception as e:
-        print(f"\n❌ ERROR: Cannot connect to DataFusion service at {base_url}")
+        print(f"\nERROR: Cannot connect to DataFusion service at {base_url}")
         print(f"   Make sure the service is running: docker-compose up -d")
         print(f"   Error: {e}")
         sys.exit(1)
@@ -635,7 +635,7 @@ def main():
             print(f"  • {result.name}: {result.error}")
 
     print("\n" + "="*80)
-    print("✅ Benchmark completed!")
+    print("Benchmark completed!")
     print("="*80)
 
 
